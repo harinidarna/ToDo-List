@@ -12,13 +12,13 @@ app.use(express.static("public"));
 app.set("view engine", "ejs");
 
 mongoose.connect(mongodb_uri);
+
 const connection = mongoose.connection;
 connection.once('open', ()=>{
     console.log("connected to mongoose database successfully.");
 });
 
 const Schema = mongoose.Schema;
-
 const itemsSchema = new Schema({
     name:String,
 });
@@ -41,13 +41,20 @@ const listsSchema = new Schema({
 });
 const List = mongoose.model("List", listsSchema);
 
+var list_names = new Set([]);
+List.find({}).then((data)=>{
+    data.forEach((data_item)=>{
+        list_names.add(data_item.name);
+    });
+});
+
 app.get("/", (req, res)=>{
     Item.find({}).then((data) => {
         if(data.length === 0){
             Item.insertMany(defaultItems).then(() => console.log("ManyItems saved!"));
             res.redirect("/");
         }else{
-            res.render("list", {listTitle: "Today", newitems: data});
+            res.render("list", {listTitle: "Today", newitems: data, newlists: list_names});
         }
     })
 });
@@ -61,11 +68,12 @@ app.get("/:customListName", (req,res)=>{
                 name:customListName,
                 items:defaultItems,
             });
-            list1.save();
+            list1.save().then();
+            list_names.add(customListName);
             res.redirect("/"+customListName);
         }
         else{
-            res.render("list", {listTitle: foundList.name, newitems: foundList.items});
+            res.render("list", {listTitle: foundList.name, newitems: foundList.items, newlists: list_names});
         }
     });
 });
@@ -91,17 +99,30 @@ app.post("/", (req,res)=>{
 });
 
 app.post("/delete", (req,res) =>{
-    const item_id = req.body.checkbox;
-    const list_name = req.body.listname;
-    
-    if(list_name === "Today"){
-        Item.findByIdAndDelete(item_id).then(()=>{console.log("ITEM DELETED!")})
-        res.redirect("/");
-    }else{
-        List.findOneAndUpdate({name:list_name}, {$pull: {items: {_id: item_id}}}).then(() => {
-            res.redirect("/" + list_name);
-        })
+
+    if(req.body.name){
+        const list_name = req.body.name;
+        List.findOneAndDelete({name:list_name}).then(()=>{
+            list_names.delete(list_name);
+            console.log("Deleted " + list_name);
+            res.redirect("/");
+        });
     }
+
+    else{ 
+        const item_id = req.body.checkbox;
+        const list_name = req.body.listname;
+        
+        if(list_name === "Today"){
+            Item.findByIdAndDelete(item_id).then(()=>{console.log("ITEM DELETED!")})
+            res.redirect("/");
+        }else{
+            List.findOneAndUpdate({name:list_name}, {$pull: {items: {_id: item_id}}}).then(() => {
+                res.redirect("/" + list_name);
+            })
+        }
+    }
+    
 });
 
 app.listen(process.env.PORT || 3000, ()=>{
